@@ -1,0 +1,9 @@
+# Audio recordings
+*.wav
+*.mp3
+*.m4a
+*.flac
+*.ogg
+*.aac
+*.opus
+.env

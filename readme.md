@@ -82,8 +82,45 @@ uvicorn edgegd:app --reload
 
 Then POST an audio file to `http://localhost:8000/analyze` (e.g. via curl, Postman, or a frontend) — returns the same JSON as the CLI plus downloadable PDF via `/report/{session_id}`.
 
+Note this endpoint runs the whole pipeline inside the request, so the connection has to stay open for the full analysis. For anything longer than a couple of minutes use the web app below instead.
+
+**7. Web app — upload in the browser, read the report there**
+
+```bash
+uvicorn server:app --port 8000
+```
+
+Open `http://localhost:8000`. Drop in an audio *or video* file (anything ffmpeg can read), optionally set the topic, the expected speaker count, and a "first N minutes" limit for a quick look at a long recording. The upload returns immediately with a job id and the page polls progress phase by phase; when it finishes you get the full report in the UI — cohesion scores, a hover-able diarization timeline, the speaking split, pace against the configured normal band, per-speaker cards, turn-taking, topics, and the transcript. The PDF and the Phase 8 Plotly charts are linked from the bottom of the report.
+
+Analysis is CPU-bound, so jobs are serialised through a single worker; a second upload queues behind the first. Whisper and pyannote are loaded once and stay warm for the life of the process. Rough timing on an M-series CPU with `base`: **about real time** — a 10-minute recording takes roughly 10 minutes, most of it diarization.
+
+Each run gets its own directory, so sessions no longer overwrite each other's charts:
+
+```
+edgegd_output/
+├── sessions/
+│   └── <session_id>/
+│       ├── result_<session_id>.json
+│       ├── report_<session_id>.pdf
+│       ├── source.json          ← what was uploaded, and with which options
+│       ├── summary.png
+│       └── *.html               ← the four Plotly charts
+└── uploads/                      ← transient; cleared as each job finishes
+```
+
+Files:
+
+- `server.py` — the web backend (job queue, progress, session archive). Imports `python.py` as a library; the CLI and Phase 10 live mode are untouched.
+- `web/` — the frontend: `index.html`, `styles.css`, `app.js`. No build step and no CDN, so it works offline.
+
+If `HF_TOKEN` isn't set but the pyannote weights are already in your HuggingFace cache, `server.py` switches the hub to offline mode so diarization reads the cache instead of failing an auth check against the gated repo.
+
 ---
 
 **A note on first run**: the first time you run `analyze`, expect a pause while Whisper downloads its model weights (~150MB for `base`) and pyannote downloads its pipeline (~a few hundred MB). Both cache locally after that, so subsequent runs are fast to start.
 
 For your first test, I'd suggest grabbing a short (2-3 min) recording with 2-3 speakers — easier to sanity-check the metrics against what you actually heard, before running it on a full mock GD session.
+
+
+cd /Users/akshay/Desktop/Projects/edgeGD
+uvicorn server:app --port 8000

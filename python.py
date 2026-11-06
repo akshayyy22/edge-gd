@@ -200,9 +200,42 @@ class SpeakerDiarizer:
         if self._pipeline is None:
             from pyannote.audio import Pipeline
             self._pipeline = Pipeline.from_pretrained(
-                self.model_name, use_auth_token=self.hf_token
+                self.model_name, token=self.hf_token
             )
         return self._pipeline
+
+    @staticmethod
+    def _prepare_audio(audio_path: str) -> Dict[str, Any]:
+        """Load audio as a pyannote-compatible dict (avoids torchcodec)."""
+        import subprocess
+        import tempfile
+        import torch
+        import soundfile as sf
+
+        path = audio_path
+        tmp_path = None
+        if not audio_path.lower().endswith((".wav", ".flac")):
+            tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+            tmp_path = tmp.name
+            tmp.close()
+            subprocess.run(
+                ["ffmpeg", "-y", "-i", audio_path, "-ar", str(Config.SAMPLE_RATE),
+                 "-ac", "1", "-vn", tmp_path],
+                check=True, capture_output=True,
+            )
+            path = tmp_path
+
+        try:
+            data, sr = sf.read(path, dtype="float32")
+            waveform = torch.from_numpy(data)
+            if waveform.ndim == 1:
+                waveform = waveform.unsqueeze(0)
+            else:
+                waveform = waveform.T.contiguous()
+            return {"waveform": waveform, "sample_rate": sr}
+        finally:
+            if tmp_path:
+                os.remove(tmp_path)
 
     def diarize(self, audio_path: str, num_speakers: Optional[int] = None
                  ) -> List[Dict[str, Any]]:
@@ -211,10 +244,13 @@ class SpeakerDiarizer:
         kwargs = {}
         if num_speakers:
             kwargs["num_speakers"] = num_speakers
-        diarization = pipeline(audio_path, **kwargs)
+        audio = self._prepare_audio(audio_path)
+        diarization = pipeline(audio, **kwargs)
+        # pyannote.audio >= 4 wraps the Annotation in a DiarizeOutput
+        annotation = getattr(diarization, "speaker_diarization", diarization)
 
         segments = []
-        for turn, _, speaker in diarization.itertracks(yield_label=True):
+        for turn, _, speaker in annotation.itertracks(yield_label=True):
             segments.append({
                 "speaker": speaker,
                 "start": turn.start,
@@ -300,15 +336,31 @@ class TranscriptAligner:
         )
 
 
-def run_phase1(audio_path: str, num_speakers: Optional[int] = None
+def run_phase1(audio_path: str, num_speakers: Optional[int] = None,
+               stt: Optional[SpeechToTextEngine] = None,
+               diarizer: Optional[SpeakerDiarizer] = None,
+               progress: Optional[Any] = None
                ) -> List[TranscriptSegment]:
-    """Phase 1 pipeline: audio -> speaker-attributed transcript."""
-    stt = SpeechToTextEngine()
-    diarizer = SpeakerDiarizer()
+    """
+    Phase 1 pipeline: audio -> speaker-attributed transcript.
 
+    `stt` / `diarizer` may be passed in so a long-running server can keep
+    the loaded models warm across sessions instead of reloading per run.
+    `progress` is an optional callable(label, pct) for UI reporting.
+    """
+    stt = stt or SpeechToTextEngine()
+    diarizer = diarizer or SpeakerDiarizer()
+
+    if progress:
+        progress("Transcribing speech (Whisper)", 5)
     whisper_result = stt.transcribe(audio_path)
+
+    if progress:
+        progress("Identifying speakers (pyannote)", 45)
     diar_segments = diarizer.diarize(audio_path, num_speakers=num_speakers)
 
+    if progress:
+        progress("Aligning words to speakers", 70)
     transcript = TranscriptAligner.align(whisper_result, diar_segments)
     return transcript
 
@@ -695,12 +747,18 @@ class KeywordExtractor:
             by_speaker[seg.speaker].append(seg.text)
 
         results: Dict[str, List[str]] = {}
-        kw_model = self._load_keybert()
+        try:
+            kw_model = self._load_keybert()
+        except Exception:
+            kw_model = None
 
         for speaker, texts in by_speaker.items():
             full_text = " ".join(texts)
             if len(full_text.split()) < 3:
                 results[speaker] = []
+                continue
+            if kw_model is None:
+                results[speaker] = self._fallback_keywords(full_text, top_n)
                 continue
             try:
                 keywords = kw_model.extract_keywords(
@@ -1493,30 +1551,53 @@ def analyze_session(audio_path: str,
                      topic: str = "Group Discussion",
                      num_speakers: Optional[int] = None,
                      output_dir: str = Config.OUTPUT_DIR,
-                     save_to_db: bool = False) -> "SessionResult":
+                     save_to_db: bool = False,
+                     progress: Optional[Any] = None,
+                     stt: Optional[SpeechToTextEngine] = None,
+                     diarizer: Optional[SpeakerDiarizer] = None,
+                     session_id: Optional[str] = None,
+                     total_duration_sec: Optional[float] = None) -> "SessionResult":
     """
     Full offline pipeline: Phases 1-9.
+
+    `progress` is an optional callable(label, pct) so a caller (e.g. the web
+    backend) can report which phase is running. `stt` / `diarizer` allow
+    reusing warm models. `total_duration_sec`, when given, is used as the
+    session length instead of the last spoken word's timestamp - the real
+    recording length is what participation percentages should divide by.
     """
-    session_id = str(uuid.uuid4())[:8]
+    session_id = session_id or str(uuid.uuid4())[:8]
     date_str = datetime.now().strftime("%Y-%m-%d %H:%M")
 
+    def tick(label: str, pct: int):
+        if progress:
+            progress(label, pct)
+
     # --- Phase 1 ---
-    transcript = run_phase1(audio_path, num_speakers=num_speakers)
-    total_duration = max((seg.end for seg in transcript), default=0.0)
+    transcript = run_phase1(audio_path, num_speakers=num_speakers,
+                            stt=stt, diarizer=diarizer,
+                            progress=lambda l, p: tick(l, int(p * 0.62)))
+    spoken_end = max((seg.end for seg in transcript), default=0.0)
+    total_duration = total_duration_sec or spoken_end
 
     # --- Phase 2 ---
+    tick("Measuring participation", 64)
     speaking_times, participation_pct, classifications = run_phase2(transcript, total_duration)
 
     # --- Phase 3 ---
+    tick("Analysing conversation dynamics", 68)
     p3 = run_phase3(transcript)
 
     # --- Phase 4 ---
+    tick("Scoring communication quality", 72)
     p4 = run_phase4(transcript)
 
     # --- Phase 5 ---
+    tick("Extracting keywords and topics", 76)
     p5 = run_phase5(transcript)
 
     # --- Phase 6 ---
+    tick("Building interaction graph", 84)
     p6 = run_phase6(transcript, participation_pct)
 
     # --- Assemble participant metrics ---
@@ -1543,6 +1624,7 @@ def analyze_session(audio_path: str,
         participants[pid] = pm
 
     # --- Phase 7 ---
+    tick("Scoring group cohesion", 88)
     cohesion_score, cohesion_label = run_phase7(
         participants=participants,
         participation_balance=p6["participation_balance_score"],
@@ -1578,12 +1660,15 @@ def analyze_session(audio_path: str,
     )
 
     # --- Phase 8 ---
+    tick("Rendering charts", 91)
     dashboard_paths = run_phase8(result, p6["response_graph"], output_dir)
 
     # --- Phase 9 ---
+    tick("Writing PDF report", 96)
     pdf_path = run_phase9(result, output_dir)
 
     # --- Save JSON summary ---
+    tick("Saving results", 99)
     json_path = os.path.join(output_dir, f"result_{session_id}.json")
     with open(json_path, "w") as f:
         json.dump(_result_to_dict(result), f, indent=2, default=str)

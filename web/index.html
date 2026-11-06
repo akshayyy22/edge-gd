@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>EdgeGD — Group Discussion Analysis</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-in">
+    <a class="brand" href="#/">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <span>
+        <b>EdgeGD</b>
+        <i>group discussion analysis</i>
+      </span>
+    </a>
+    <nav class="nav">
+      <a href="#/" data-nav="upload">New analysis</a>
+      <a href="#/sessions" data-nav="sessions">Sessions</a>
+    </nav>
+  </div>
+</header>
+
+<main id="view" class="wrap" aria-live="polite">
+  <div class="loading">Loading…</div>
+</main>
+
+<div id="tip" role="tooltip" aria-hidden="true"></div>
+
+<!-- ============ TEMPLATES ============ -->
+
+<template id="tpl-upload">
+  <section class="hero">
+    <p class="eyebrow">Phases 1–9 · offline pipeline</p>
+    <h1>Upload a recorded discussion</h1>
+    <p class="lede">
+      Whisper transcribes it, pyannote separates the speakers, and the pipeline scores
+      participation, interruptions, pace, filler words and group cohesion — then builds a
+      report you can read here or hand over as a PDF.
+    </p>
+  </section>
+
+  <form class="panel form" id="upload-form">
+    <div class="drop" id="drop" tabindex="0" role="button"
+         aria-label="Choose a recording to analyse">
+      <input type="file" id="file" name="audio"
+             accept="audio/*,video/*,.wav,.mp3,.m4a,.mp4,.mkv,.mov,.webm,.flac,.ogg" hidden>
+      <div class="drop-idle">
+        <span class="drop-icon" aria-hidden="true"></span>
+        <b>Drop a recording here, or click to choose</b>
+        <span class="muted-line">Audio or video — anything ffmpeg can read (wav, mp3, m4a, mp4, mkv…)</span>
+      </div>
+      <div class="drop-file" hidden>
+        <span class="drop-icon is-file" aria-hidden="true"></span>
+        <b id="drop-name">—</b>
+        <span class="muted-line" id="drop-meta">—</span>
+        <button type="button" class="ghost" id="drop-clear">Choose a different file</button>
+      </div>
+    </div>
+
+    <div class="fields">
+      <label class="field">
+        <span class="field-label">Discussion topic</span>
+        <input type="text" id="topic" name="topic" placeholder="e.g. AI in Education">
+        <span class="field-help">Printed on the report. Optional.</span>
+      </label>
+
+      <label class="field">
+        <span class="field-label">Expected speakers</span>
+        <input type="number" id="speakers" name="num_speakers" min="2" max="12"
+               placeholder="Auto-detect">
+        <span class="field-help">Pass the real count if you know it — it noticeably improves diarization.</span>
+      </label>
+
+      <label class="field">
+        <span class="field-label">Analyse only the first</span>
+        <span class="field-suffixed">
+          <input type="number" id="limit" name="limit_minutes" min="1" step="1"
+                 placeholder="whole file">
+          <span class="suffix">minutes</span>
+        </span>
+        <span class="field-help">Useful for a quick look at a long recording.</span>
+      </label>
+    </div>
+
+    <div class="form-foot">
+      <button type="submit" class="primary" id="submit" disabled>Run analysis</button>
+      <span class="field-help" id="runtime-hint"></span>
+    </div>
+
+    <p class="error" id="upload-error" hidden></p>
+  </form>
+
+  <section class="panel" id="recent-panel" hidden>
+    <div class="panel-head">
+      <p class="eyebrow">Previously analysed</p>
+      <h2>Recent sessions</h2>
+    </div>
+    <div id="recent-list" class="session-list"></div>
+  </section>
+</template>
+
+<template id="tpl-progress">
+  <section class="panel run">
+    <div class="panel-head">
+      <p class="eyebrow" id="run-status">Analysing</p>
+      <h2 id="run-file">—</h2>
+    </div>
+
+    <div class="progress">
+      <div class="progress-track"><div class="progress-fill" id="run-fill"></div></div>
+      <div class="progress-row">
+        <span id="run-phase">Starting…</span>
+        <span class="num" id="run-pct">0%</span>
+      </div>
+    </div>
+
+    <dl class="run-meta">
+      <div><dt>Elapsed</dt><dd class="num" id="run-elapsed">0:00</dd></div>
+      <div><dt>Audio length</dt><dd class="num" id="run-duration">—</dd></div>
+      <div><dt>Topic</dt><dd id="run-topic">—</dd></div>
+      <div><dt>Speakers</dt><dd id="run-speakers">—</dd></div>
+    </dl>
+
+    <p class="note" id="run-note">
+      On CPU this runs at roughly real time — a 10-minute recording takes about 10 minutes, with
+      speaker diarization taking the larger share. You can leave this page; the job keeps running
+      and the finished report appears under Sessions.
+    </p>
+
+    <p class="error" id="run-error" hidden></p>
+    <div class="form-foot" id="run-actions" hidden></div>
+  </section>
+</template>
+
+<template id="tpl-sessions">
+  <section class="hero">
+    <p class="eyebrow">Archive</p>
+    <h1>Sessions</h1>
+  </section>
+  <section class="panel">
+    <div id="sessions-list" class="session-list"></div>
+  </section>
+</template>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

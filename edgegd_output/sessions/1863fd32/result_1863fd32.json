@@ -1,0 +1,70 @@
+{
+  "session_id": "1863fd32",
+  "date": "2026-07-30 18:13",
+  "topic": "Filename fix check",
+  "total_duration_sec": 25.0,
+  "transcript": [
+    {
+      "speaker": "SPEAKER_00",
+      "start": 1.6400000000000006,
+      "end": 24.98,
+      "text": "Hello and welcome to the IGN UK podcast on this week's podcast. I'm gonna be on it. I think I think I think it would be a fair if you stay. Do you think? Yeah. I was gonna say hello and then go. No, I'll stay. Okay. I'm Alex and I'm joined by Luke Kamali. Hello, who I dearly love. You do. I do. You do. Shall we get onto that later? I haven't printed it off but yeah we can't test it. Hello. You never come on the podcast."
+    }
+  ],
+  "participants": {
+    "SPEAKER_00": {
+      "participant_id": "SPEAKER_00",
+      "speaking_time_sec": 23.34,
+      "participation_pct": 93.36,
+      "classification": "Dominant",
+      "interruptions_made": 0,
+      "interruptions_received": 0,
+      "overlap_time_sec": 0.0,
+      "word_count": 90,
+      "avg_wpm": 231.4,
+      "pace_label": "Fast",
+      "filler_count": 0,
+      "filler_density_pct": 0.0,
+      "long_pauses": 0,
+      "hesitation_pauses": 4,
+      "keywords": [
+        "podcast",
+        "ign",
+        "week",
+        "alex",
+        "luke"
+      ],
+      "communication_score": 90.68,
+      "strengths": [
+        "Minimal use of filler words; concise communication",
+        "Did not interrupt other participants"
+      ],
+      "weaknesses": [
+        "Dominated discussion time, limiting others' contributions",
+        "Speaking pace was faster than ideal, which may reduce clarity"
+      ]
+    }
+  },
+  "interruption_matrix": {},
+  "overlaps": [],
+  "turn_taking_score": 0.0,
+  "turn_sequence": [
+    "SPEAKER_00"
+  ],
+  "topic_timeline": [
+    {
+      "start_min": 0.0,
+      "end_min": 0.4,
+      "topics": [
+        "podcast",
+        "ign",
+        "week"
+      ]
+    }
+  ],
+  "topic_drift_events": [],
+  "response_graph_edges": [],
+  "participation_balance_score": 100.0,
+  "group_cohesion_score": 66.74,
+  "group_cohesion_label": "Average"
+}
